@@ -7,3 +7,4 @@ def test_load_snomed_mapping():
 def test_snomed_mapping():
     mapping = load_data('snomed_mapping')
     assert mapping.index.dtype == int64
+
