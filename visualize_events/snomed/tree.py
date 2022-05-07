@@ -45,7 +45,9 @@ class Node:
     
     @property
     def has_important(self):
-        if len(self.children) == 0:
+        if self.important:
+            return True
+        elif len(self.children) == 0:
             return self.important
         else:
             return any((child.has_important for child in self.children))
@@ -75,6 +77,40 @@ class Node:
     
     def __repr__(self):
         return f"NODE: {self.name}. P:{len(self.parents)}, C:{len(self.children)}"
+
+    def __str__(self):
+        if self.label is not None:
+            return str(self.label)
+        else:
+            return str(self.name)
+
+    def get_newick(self, depth=None):
+        string = ""
+        if len(self.children) != 0 and (depth is None or depth > 0):
+            string = "(" + ",".join([c.get_newick(depth if depth is None else depth-1) for c in self.children]) + ")"
+        name = str(self)
+        if '"' in name:
+            raise ValueError("Will error!")
+        string += '"' + str(self) + '"'
+        return string
+
+    def ancestors(self):
+        yield self
+        visited = set([self])
+        for p in self.parents:
+            for anc in p.ancestors():
+                if anc not in visited:
+                    yield anc
+                    visited.add(anc)
+    
+    def descendants(self):
+        yield self
+        visited = set([self])
+        for c in self.children:
+            for des in c.ancestors():
+                if des not in visited:
+                    yield des
+                    visited.add(des)
 
         
 class Tree:
@@ -120,6 +156,8 @@ class Tree:
         assert isinstance(name, int)
         if name in self.concept_to_node:
             return
+        node = Node(None, name)
+        self.concept_to_node[name] = node
         parents = []
         for par in [int(p) for p in self.df.loc[name, 'parents'].split(',')]:
             if par not in self.df.index.values:
@@ -128,12 +166,9 @@ class Tree:
                     self._WARNED = True
             else:
                 parents.append(par)
-
         for par in parents:
             if par not in self.concept_to_node:
                 self._expand_df(par)
-        node = Node(None, par)
-        self.concept_to_node[name] = node
         for par in parents:
             par_node = self.concept_to_node[par]
             if node not in par_node.children:
@@ -152,6 +187,9 @@ class Tree:
             else:
                 raise e
         return True
+
+    def get_newick(self, depth=None):
+        return self.root.get_newick(depth) + ";"
     
     def traverse(self, yield_first_visit=True, yield_visited=False, raise_on_visited=True):
         visited = set()
@@ -193,7 +231,7 @@ class Tree:
             n.d = n.depth
     
     def attr_label(self):
-        for n in self.traverse(raise_on_visited=False):
+        for n in self.concept_to_node.values():
             n.label = self.df.loc[n.name, 'label']
     
     def make_tree(self, mode='most_popular_parent'):
@@ -201,14 +239,15 @@ class Tree:
             self.__attr_nr_leafs()
         for n in self.traverse(yield_first_visit=False, yield_visited=True, raise_on_visited=False):
             if mode == 'most_popular_parent':
-                popular_parent = n.parents[0]
-                for par in n.parents[1:]:
-                    if par.w > popular_parent.w:
-                        popular_parent.pop_child(n)
-                        popular_parent = par
-                    else:
-                        par.pop_child(n)
-                n.parents = [popular_parent]
+                if len(n.parents) > 1:
+                    popular_parent = n.parents[0]
+                    for par in n.parents[1:]:
+                        if par.w > popular_parent.w:
+                            popular_parent.pop_child(n)
+                            popular_parent = par
+                        else:
+                            par.pop_child(n)
+                    n.parents = [popular_parent]
             if mode == 'random':
                 keep_i = np.random.choice(len(n.parents))
                 for i, p in enumerate(n.parents):
@@ -226,32 +265,48 @@ class Tree:
             for c in n.children:
                 c.add_parent(n)
     
-    def filter_tree(self, constraint, verbose=False):
-        N = 0
-        E = 0
-        for n in self.traverse(yield_first_visit=True, yield_visited=False, raise_on_visited=True):
-            if constraint(n):
-                # reconnect
-                for c in n.children:
-                    for p in n.parents:
-                        p.add_child(c)
-                        c.add_parent(p)
-                        E += 1
-                # unlink parents
-                for p in n.parents:
-                    p.pop_child(n)
-                # unlink children
-                for c in n.children:
-                    c.pop_parent(n)
+    def _del_node(self, n):
+        # reconnect
+        for c in n.children:
+            for p in n.parents:
+                p.add_child(c)
+                c.add_parent(p)
+        # unlink parents
+        for p in n.parents:
+            p.pop_child(n)
+        # unlink children
+        for c in n.children:
+            c.pop_parent(n)
 
-                N += 1
-                # delete node
-                del self.concept_to_node[n.name]
-                del n
-        print(f"Removed {N} nodes and added {E} edges.")
+        # delete node
+        del self.concept_to_node[n.name]
+        del n
+
+    def filter(self, constraint, verbose=False, raise_on_visited=True, traverse=True):
+        N = 0
+        if traverse:
+            for n in self.traverse(yield_first_visit=True, yield_visited=False, raise_on_visited=raise_on_visited):
+                if constraint(n):
+                    N += 1
+                    self._del_node(n)
+        else:
+            nodes = list(self.concept_to_node.values()).copy()
+            for n in nodes:
+                if constraint(n):
+                    N += 1
+                    self._del_node(n)
+        if verbose:
+            print(f"Removed {N} nodes.")
     
     def compact(self, verbose=False):
-        self.filter_tree(lambda n : len(n.children) == 1, verbose=verbose)
+        self.filter(lambda n : len(n.children) == 1, verbose=verbose)
+
+    def remove_other_roots(self, verbose=False):
+        for n in self.traverse(raise_on_visited=False):
+            n.important = True
+        self.filter(lambda n : not n.important, verbose=verbose, traverse=False)
+        for n in self.traverse(raise_on_visited=False):
+            n.important = False
 
     def keep_concepts(self, concepts, verbose=False):
         C = 0
@@ -261,7 +316,13 @@ class Tree:
             else:
                 self.concept_to_node[int(concept)].important = True
         print(f"Warning, {C} concepts were not found in tree.")
-        self.filter_tree(lambda n : not n.has_important, verbose=verbose)
+        self.filter(lambda n : not n.has_important, verbose=verbose, traverse=False)
+        for concept in concepts:
+            if int(concept) in self.concept_to_node:
+                self.concept_to_node[int(concept)].important = False
+
+    def __len__(self):
+        return len(self.concept_to_node)
 
 def load_tree():
     snomed_mapping = load_data('snomed_mapping')
