@@ -235,7 +235,7 @@ class Tree:
             n.label = self.df.loc[n.name, 'label']
     
     def make_tree(self, mode='most_popular_parent'):
-        if mode == 'most_popular_parent':
+        if 'popular_parent' in mode:
             self.__attr_nr_leafs()
         for n in self.traverse(yield_first_visit=False, yield_visited=True, raise_on_visited=False):
             if mode == 'most_popular_parent':
@@ -248,7 +248,17 @@ class Tree:
                         else:
                             par.pop_child(n)
                     n.parents = [popular_parent]
-            if mode == 'random':
+            elif mode == 'least_popular_parent':
+                if len(n.parents) > 1:
+                    popular_parent = n.parents[0]
+                    for par in n.parents[1:]:
+                        if par.w < popular_parent.w:
+                            popular_parent.pop_child(n)
+                            popular_parent = par
+                        else:
+                            par.pop_child(n)
+                    n.parents = [popular_parent]
+            elif mode == 'random':
                 keep_i = np.random.choice(len(n.parents))
                 for i, p in enumerate(n.parents):
                     if i == keep_i:
@@ -307,6 +317,12 @@ class Tree:
         self.filter(lambda n : not n.important, verbose=verbose, traverse=False)
         for n in self.traverse(raise_on_visited=False):
             n.important = False
+
+    def remove_non_clinical_finding(self):
+        for name in [272379006, 243796009, 71388002]:
+            node = self.concept_to_node[name]
+            self.root.pop_child(node)
+        self.remove_other_roots()
 
     def keep_concepts(self, concepts, verbose=False):
         C = 0
