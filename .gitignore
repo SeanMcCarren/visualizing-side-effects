@@ -1,4 +1,7 @@
 
 *.pyc
 visualize_events.egg-info/
-.ipynb_checkpoints/example-checkpoint.ipynb
+.ipynb_checkpoints/*
+
+visualize_events/data/fake_predictions
+
