@@ -1,9 +1,9 @@
-from .tree import *
+from .dag import *
 from .visualize import *
 
 __all__ = [
-    "Tree",
+    "DAG",
     "Node",
-    "load_tree",
+    "load_dag",
     "draw_subgraph_to_leaf"
 ]

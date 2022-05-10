@@ -57,6 +57,8 @@ computed_items = [
     ("doubles", {'index_col': 0}),
     ("snomed_mapping", {'index_col': 'key', 'dtype': {'found': int, 'key': int}}),
     ("snomed_mapping_extended", {'index_col': 'key'}),
+    'clinical_finding_edges',
+    ('clinical_finding_nodes', {'index_col': 'name'}),
 ]
 
 data = [
