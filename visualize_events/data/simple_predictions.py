@@ -4,8 +4,10 @@ from pathlib import Path
 import os
 from typing import List, Tuple, Union
 from numpy import all, isin
+from pandas import DataFrame
 
 DrugPair = Union[Tuple[int, int], int, None]
+Prediction = DataFrame
 
 _facts = None
 
@@ -14,7 +16,7 @@ _singles = None
 _doubles = None
 _drugs = None
 
-DATA_DIR = Path(__file__).parent / 'fake_predictions'
+DATA_DIR = Path(__file__).parent / 'simple_predictions'
 
 def _exists(path):
     return os.path.isfile(path)
@@ -75,7 +77,7 @@ def _compute_predictions_baseline():
         _facts = load_data('facts')
     return frequency_prediction_from_data(_facts)
 
-def get_predictions(drug_pairs: List[DrugPair]):
+def get_predictions(drug_pairs: List[DrugPair]) -> List[DataFrame]:
     """
     Compute predictions from data.
     """

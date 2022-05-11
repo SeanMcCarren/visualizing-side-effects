@@ -3,5 +3,5 @@
 visualize_events.egg-info/
 .ipynb_checkpoints/*
 
-visualize_events/data/fake_predictions
+visualize_events/data/simple_predictions
 
