@@ -1,3 +1,4 @@
+from yaml import load
 from visualize_events.snomed import *
 import pytest
 
@@ -39,3 +40,5 @@ def test_copy():
     for a, b in zip(T_traversal, G_traversal):
         assert a is not b
         assert a.name == b.name
+
+T = load_dag()

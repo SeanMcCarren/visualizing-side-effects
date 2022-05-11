@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 import copy
 
+from pyrsistent import discard
+
 from visualize_events.data import load_data
 
 logger = logging.getLogger()
@@ -17,6 +19,7 @@ class Node:
         self.children = []
         self.important = False
         self.w = None # Can hold weight ?
+        self.pred = None # Can hold predictions
         self.d = None # Can hold depth value
         self.label = label # Holds label of concept
         self.leafs = None # Can hold nr of leafs
@@ -122,6 +125,7 @@ class DAG:
         self.nodes = dict()
         self.nodes_df = nodes.copy()
         self.edges_df = edges.copy()
+        self.prediction_df = None
 
         # Add nodes
         for name, label in nodes.reset_index().values:
@@ -277,7 +281,7 @@ class DAG:
                     N += 1
                     self._del_node(n)
         if verbose:
-            print(f"Removed {N} nodes.")
+            logger.log(f"Removed {N} nodes.")
     
     # def compact(self, verbose=False):
     #     self.filter(lambda n : len(n.children) == 1, verbose=verbose)
@@ -302,11 +306,15 @@ class DAG:
                 C += 1
             else:
                 self.nodes[name].important = True
-        print(f"Warning, {C} names were not found in dag.")
+        if C > 0:
+            logger.warn(f"Warning, {C} names were not found in dag.")
         self.filter(lambda n : not n.has_important, verbose=verbose, traverse=False)
         for name in names:
             if name in self.nodes:
                 self.nodes[name].important = False
+        self._filter_df()
+    
+    def _filter_df(self):
         list_nodes = list(self.nodes)
         self.nodes_df = self.nodes_df[np.isin(self.nodes_df['name'], list_nodes)]
         self.edges_df = self.edges_df[np.isin(self.edges_df['parent'], list_nodes)]
@@ -315,9 +323,28 @@ class DAG:
     def __len__(self):
         return len(self.nodes)
 
-    def copy(self, from_df=True):
+    def _reset_prediction(self):
+        for reaction in self.prediction_df.index.values():
+            self.nodes[reaction].pred = None
+
+    def set_prediction(self, prediction_df, discard_others=False):
+        assert (prediction_df.columns == ['incidence','frequency']).all()
+        assert prediction_df.index.name == 'snomed_reaction'
+        if self.prediction_df is not None:
+            self._reset_prediction()
+
+        self.prediction_df = prediction_df
+        for reaction, incidence, frequency in prediction_df.reset_index().values():
+            n = self.nodes[reaction]
+            n.pred = (incidence, frequency)
+
+        if discard_others:
+            self.keep_names(prediction_df.index().values)
+
+
+    def copy(self, init=True):
         # Using dataframe
-        if from_df:
+        if init:
             return DAG(self.nodes_df, self.edges_df)
 
         # Using deepcopy
