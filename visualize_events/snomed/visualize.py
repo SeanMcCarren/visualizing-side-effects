@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
 import networkx as nx
-from .tree import Node, Tree
+from .dag import Node, DAG
 
-def draw_subgraph_to_leaf(x: Node, T: Tree, ax = None):
+def draw_subgraph_to_leaf(x: Node, T: DAG, ax = None):
     anc = [a for a in x.ancestors()]
 
     edges = [
@@ -27,7 +27,7 @@ def draw_subgraph_to_leaf(x: Node, T: Tree, ax = None):
             xx, yy = pos[n.name]
             pos[n.name] = (((xx-0) * -1 + (len(row[n.depth])-1-xx))/len(row[n.depth]), yy + (xx % 3 - 1)/3)
 
-    pos[T.root.name] = (pos[T.root.name][0], pos[T.root.name][1]-0.8)
+    pos[T.root.name] = (pos[T.root.name][0], pos[T.root.name][1]-0.3)
     pos[x.name] = (pos[x.name][0], pos[x.name][1] + 0.5)
 
     nx.draw(G, pos, with_labels=False, node_size=5, edge_color='r', alpha=0.5, ax=ax)
