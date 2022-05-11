@@ -8,6 +8,8 @@ from numpy import all, isin
 DrugPair = Union[Tuple[int, int], int, None]
 
 _facts = None
+
+# TODO extract singles and doubles from facts to reduce dependency on data
 _singles = None
 _doubles = None
 _drugs = None
