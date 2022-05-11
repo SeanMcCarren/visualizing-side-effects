@@ -29,10 +29,10 @@ def test_newick():
     newick = T.get_newick()
     assert len(newick) > 0 and isinstance(newick, str)
 
-@pytest.mark.parametrize("from_df", [True, False])
-def test_copy():
+@pytest.mark.parametrize("init", [True, False])
+def test_copy(init):
     G = load_dag()
-    T = G.copy()
+    T = G.copy(init=init)
     assert len(T) == len(G)
     T_traversal = [t for t in T.traverse(raise_on_visited=False)]
     G_traversal = [t for t in G.traverse(raise_on_visited=False)]
@@ -40,5 +40,3 @@ def test_copy():
     for a, b in zip(T_traversal, G_traversal):
         assert a is not b
         assert a.name == b.name
-
-T = load_dag()
