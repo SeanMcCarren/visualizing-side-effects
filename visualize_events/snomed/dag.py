@@ -205,7 +205,7 @@ class DAG:
             n.d = n.depth
     
     def attr_label(self):
-        for n, label in self.nodes_df.reset_index().values():
+        for n, label in self.nodes_df.reset_index().values:
             self.nodes[n].label = label
     
     def make_tree(self, mode='most_popular_parent'):
@@ -324,17 +324,17 @@ class DAG:
         return len(self.nodes)
 
     def _reset_prediction(self):
-        for reaction in self.prediction_df.index.values():
+        for reaction in self.prediction_df.index.values:
             self.nodes[reaction].pred = None
 
-    def set_prediction(self, prediction_df, discard_others=False):
+    def set_predictions(self, prediction_df, discard_others=False):
         assert (prediction_df.columns == ['incidence','frequency']).all()
         assert prediction_df.index.name == 'snomed_reaction'
         if self.prediction_df is not None:
             self._reset_prediction()
 
         self.prediction_df = prediction_df
-        for reaction, incidence, frequency in prediction_df.reset_index().values():
+        for reaction, incidence, frequency in prediction_df.reset_index().values:
             n = self.nodes[reaction]
             n.pred = (incidence, frequency)
 
