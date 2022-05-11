@@ -2,16 +2,16 @@ from visualize_events.data import get_predictions
 import pytest
 
 def test_baseline():
-    assert len(get_predictions([None])) == 1
+    assert get_predictions(None) is not None
 
 def test_single():
-    assert len(get_predictions([861])) == 1
+    assert get_predictions(861) is not None
 
 def test_double():
-    assert len(get_predictions([(36, 2772)])) == 1
+    assert get_predictions((36, 2772)) is not None
 
 def test_reverse():
-    assert len(get_predictions([(2772, 36)])) == 1
+    assert get_predictions((2772, 36)) is get_predictions((36, 2772))
 
 def test_all():
     assert len(get_predictions([None, 861, (36, 2772)])) == 3
