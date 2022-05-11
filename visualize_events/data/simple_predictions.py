@@ -77,23 +77,24 @@ def _compute_predictions_baseline():
         _facts = load_data('facts')
     return frequency_prediction_from_data(_facts)
 
-def get_predictions(drug_pairs: List[DrugPair]) -> List[DataFrame]:
+def get_predictions(drug_pairs: Union[DrugPair,List[DrugPair]]) -> List[DataFrame]:
     """
     Compute predictions from data.
     """
-    predictions = []
-    for drug_pair in drug_pairs:
-        assert drug_pair is None or isinstance(drug_pair, (tuple, int))
-        path = _get_path(drug_pair)
+    if drug_pairs is None or isinstance(drug_pairs, (tuple, int)):
+        path = _get_path(drug_pairs)
         if _exists(path):
             data = _load(path)
         else:
-            if drug_pair is None:
+            if drug_pairs is None:
                 data = _compute_predictions_baseline()
-            elif isinstance(drug_pair, tuple):
-                data = _compute_prediction_two_drugs(drug_pair)
+            elif isinstance(drug_pairs, tuple):
+                data = _compute_prediction_two_drugs(drug_pairs)
             else:
-                data = _compute_prediction_single_drug(drug_pair)
+                data = _compute_prediction_single_drug(drug_pairs)
             _save(data, path)
-        predictions.append(data)
-    return predictions
+        return data
+    elif isinstance(drug_pairs, list):
+        return [get_predictions(drug_pair) for drug_pair in drug_pairs]
+    else:
+        raise ValueError("Parameter drug_pairs is not a DrugPair or a list of DrugPair")
