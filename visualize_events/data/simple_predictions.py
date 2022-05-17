@@ -3,8 +3,9 @@ from .data_loader import load_data
 from pathlib import Path
 import os
 from typing import List, Tuple, Union
-from numpy import all, isin
+from numpy import all, isin, int64, sqrt, divide, multiply
 from pandas import DataFrame
+from statsmodels.stats.proportion import proportion_confint
 
 DrugPair = Union[Tuple[int, int], int, None]
 Prediction = DataFrame
@@ -16,7 +17,7 @@ _singles = None
 _doubles = None
 _drugs = None
 
-DATA_DIR = Path(__file__).parent / 'simple_predictions'
+DATA_DIR = Path(__file__).parent / 'simple_predictions_cache'
 
 def _exists(path):
     return os.path.isfile(path)
@@ -33,7 +34,7 @@ def _get_path(drug_pair: DrugPair):
     return DATA_DIR / stringified
 
 def _load(path: Path):
-    return read_csv(path, index_col='snomed_reaction')
+    return read_csv(path, index_col='snomed_reaction', dtype={'snomed_reaction': int64, 'frequency': float, 'error': float})
 
 def _save(data, path: Path):
     data.to_csv(path)
@@ -44,7 +45,17 @@ def frequency_prediction_from_data(reactions):
     N_cases = reactions['case_id'].nunique()
     incidence = reactions.groupby('snomed_reaction')['case_id'].count()
     frequency = incidence / N_cases
-    return DataFrame({'incidence': incidence, 'frequency': frequency})
+
+    ci_low, ci_upp = proportion_confint(incidence, N_cases, alpha=0.05, method='jeffreys')
+
+    # Normal approximation of CI: bad!
+    # z = 1.96
+    # p_hat = frequency.values
+    # numerator = multiply(p_hat, (1-p_hat))
+    # # lower_CI = p_hat - z * sqrt(divide(numerator,N_cases))
+    # error = z * sqrt(divide(numerator,N_cases))
+
+    return DataFrame({'frequency': frequency, 'ci_low': ci_low, 'ci_upp': ci_upp})
 
 def _compute_prediction_two_drugs(drug_pair):
     global _doubles, _drugs
@@ -77,10 +88,12 @@ def _compute_predictions_baseline():
         _facts = load_data('facts')
     return frequency_prediction_from_data(_facts)
 
-def get_predictions(drug_pairs: Union[DrugPair,List[DrugPair]]) -> List[DataFrame]:
+def get_predictions(drug_pairs: Union[DrugPair,List[DrugPair]], predictor='frequency') -> List[DataFrame]:
     """
     Compute predictions from data.
     """
+    if predictor not in ['frequency', 'ci_low', 'ci_upp']:
+        raise ValueError("predictor method should be one of frequency, ci_low, or ci_upp")
     if drug_pairs is None or isinstance(drug_pairs, (tuple, int)):
         path = _get_path(drug_pairs)
         if _exists(path):
@@ -93,8 +106,8 @@ def get_predictions(drug_pairs: Union[DrugPair,List[DrugPair]]) -> List[DataFram
             else:
                 data = _compute_prediction_single_drug(drug_pairs)
             _save(data, path)
-        return data
+        return data[predictor]
     elif isinstance(drug_pairs, list):
-        return [get_predictions(drug_pair) for drug_pair in drug_pairs]
+        return [get_predictions(drug_pair, predictor=predictor) for drug_pair in drug_pairs]
     else:
         raise ValueError("Parameter drug_pairs is not a DrugPair or a list of DrugPair")
