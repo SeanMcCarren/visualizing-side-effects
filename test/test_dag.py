@@ -1,18 +1,34 @@
 from visualize_events.snomed import *
 from visualize_events.data import *
 import pytest
+import pandas as pd
 
-# def test_height(): # very expensive haha
-#     T = load_dag()
-#     assert T.height > 10 # should be 17 actually
+def diamond_dag():
+    nodes_df = pd.DataFrame({'name':[0,1,2,3,4],'label':[0,1,2,3,4]}).set_index('name')
+    edges_df = pd.DataFrame({'parent':[0, 0, 0, 1, 2, 3],'child':[1, 2, 3, 4, 4, 4]})
+    T = DAG(nodes_df, edges_df)
+    return T
+
+def diamond_dag_tail():
+    nodes_df = pd.DataFrame({'name':[0,1,2,3,4, 5],'label':[0,1,2,3,4,5]}).set_index('name')
+    edges_df = pd.DataFrame({'parent':[0, 0, 0, 1, 2, 3,1],'child':[1, 2, 3, 4, 4, 4,5]})
+    T = DAG(nodes_df, edges_df)
+    return T
+
+def predictions_dag():
+    T = load_dag()
+    preds = get_predictions(861)
+    T = T.set_predictions(preds)
+    return T
+
+def test_height(): # very expensive haha
+    T = diamond_dag()
+    assert T.height == 2 # should be 17 actually
 
 def test_root():
     T = load_dag()
     assert T.root.name == 138875005
     assert T.root.children[0].name != 138875005
-
-def test_single_root():
-    T = load_dag()
     assert len(T.nodes) == len([t for t in T.traverse(raise_on_visited=False)])
 
 # @pytest.mark.parametrize("mode", ['least_popular_parent', 'most_popular_parent', 'random'])
@@ -24,10 +40,8 @@ def test_single_root():
 #     assert T.is_tree()
 
 def test_newick():
-    T = load_dag()
-    preds = get_predictions(861)
-    T2 = T.set_predictions(preds, discard_others=True)
-    newick = T2.get_newick(depth=3)
+    T = predictions_dag()
+    newick = T.get_newick(depth=3)
     assert len(newick) > 0 and isinstance(newick, str)
     from ete3 import Tree
     t = Tree(newick, format=8, quoted_node_names=True)
@@ -50,16 +64,9 @@ def test_copy(init):
         assert a is not b
         assert a.name == b.name
 
-def small_dag():
-    import pandas as pd
-    
-
-def test_compact():
-    T = load_dag()
-    preds = get_predictions(861)
-    T = T.set_predictions(preds)
-    T.add_parent_store()
+@pytest.mark.parametrize("dag_result", [(diamond_dag(), 1), (diamond_dag_tail(), 3), predictions_dag(), None])
+def test_compact(dag_result):
+    T, result = dag_result
     root = T.compact_preds()
-    print(root)
-
-test_compact()
+    if result is not None:
+        assert len(root) == result

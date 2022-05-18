@@ -12,13 +12,14 @@ logger = logging.getLogger()
 
 class Node:
     def __init__(self, name: int, label: Optional[str] = None):
-        assert isinstance(name, int)
-        self.name = name
+        assert isinstance(name, (int, np.int64))
+        self.name = int(name)
         self.children = []
         self.important = False
         self.w = None  # Can hold weight ?
-        self.pred = None  # Can hold predictions
-        self.pred_agg = None  # Can hold aggregated prediction score
+        self.pred:float = None  # Can hold predictions
+        self.preds:NodeSet(Node) = None # Can hold descendant-predictions
+        self.pred_agg:float = None  # Can hold aggregated prediction score
         self.d = None  # Can hold depth value
         self.label = label  # Holds label of concept
         self.leafs = None  # Can hold nr of leafs
@@ -66,6 +67,15 @@ class Node:
         arr = np.array(child_preds)
         self.pred_agg = np.amax(arr, axis=0)
         return self.pred_agg
+
+    def descendant_pred(self):
+        if self.preds is not None:
+            return self.preds
+
+        self.preds = NodeSet(pred for child in self.children for pred in child.descendant_pred())
+        if self.pred is not None:
+            self.preds.add(self)
+        return self.preds
 
     def pop_child(self, node):
         if node in self.children:
@@ -135,7 +145,7 @@ class Node:
         yield self
         visited = set([self])
         for c in self.children:
-            for des in c.ancestors():
+            for des in c.descendants():
                 if des not in visited:
                     yield des
                     visited.add(des)
@@ -158,30 +168,45 @@ class NodeSet(set):
         return sum(name * prime for name, prime in zip(sorted(names), primes))
 
 class NodeGroup():
-    def __init__(self, nodes=NodeSet(), leafs=NodeSet()):
+    def __init__(self, nodes=None):
+        if nodes is None:
+            nodes = NodeSet()
         self.nodes = nodes # nodes in original DAG
         self.children = [] # children groups
-        self.leafs = leafs # leafs in original DAG
 
     @property
     def name(self):
         # get name from nodes
+        # ASSUME most representative node is the deepest. HOWEVER does that work if
+        # there is an intermediate prediction? I guess then it would fall
+        # under a different node group?
+        if len(self.nodes) == 0:
+            raise ValueError("Has no name because has no nodes")
+        some_node = None
         for node in self.nodes:
-            return node.name
-
-    @property
-    def label(self):
-        for node in self.nodes:
-            return node.label
+            some_node = node
+            break
+        has_more = True
+        while has_more:
+            has_more = False
+            for c in some_node.children:
+                if c in self.nodes:
+                    has_more = True
+                    some_node = c
+        return some_node.name
 
     def unique_leafs(self):
         child_leafs = set()
-        for (c, edge_type) in self.children:
+        for c in self.children:
             child_leafs.update(c.leafs)
         return self.leafs - child_leafs
 
-    def add(self, node):
-        self.nodes.add(node)
+    def add_node(self, node):
+        if node not in self.nodes:
+            self.nodes.add(node)
+
+    def __repr__(self):
+        return repr([n.name for n in self.nodes])
 
 class DAG:
     """
@@ -195,7 +220,7 @@ class DAG:
         self,
         nodes: pd.DataFrame,
         edges: pd.DataFrame,
-        edge_types: pd.Series,
+        edge_types: pd.Series=None,
         single_source=True,
         discard_singles=True,
     ):
@@ -217,7 +242,7 @@ class DAG:
             self.nodes[name] = Node(name)
 
         # Add edges
-        assert (self.edges_df.columns == ["parent", "child", "type"]).all()
+        assert (self.edges_df.columns[:2] == ["parent", "child"]).all()
         grouped = self.edges_df.groupby('parent')['child'].apply(set)
         for parent, children in grouped.reset_index().values:
             parent_node = self.nodes[parent]
@@ -431,9 +456,9 @@ class DAG:
         if np.sum(sources) == 1:
             root_name = self.adjacency_df.index.values[sources].item()
             self.root = self.nodes[root_name]
+        elif np.sum(sources) == 0:
+            logger.warn("No sources! was the tree a single and did you discard it?")
         else:
-            print(np.sum(sources))
-            print(self.adjacency_df.index.values[sources])
             raise ValueError("Provided nodes and edges have more than one source")
 
     def _compute_adjacency(self):
@@ -485,12 +510,18 @@ class DAG:
             self.adjacency_df = self.adjacency_df[np.isin(self.adjacency_df.index, keep_names)]
         # TODO also filter predictions_df
 
+    def get_edge_types(self, types):
+        edges = self.edges_df[np.isin(self.edges_df['type'], types)]
+        return DAG(self.nodes_df, edges)
+
     def __len__(self):
         return len(self.nodes)
 
     def set_predictions(self, prediction_df, aggregate='max', discard_others=True):
         assert isinstance(prediction_df, pd.Series)
         # assert prediction_df.index.name == "snomed_reaction"
+        if self.root.pred_agg is not None:
+            logger.warn("Predictions not reset. Consider calling reset_pred")
 
         N_preds = len(prediction_df)
         prediction_df = prediction_df.loc[np.isin(prediction_df.index, self.nodes_df.index)]
@@ -512,69 +543,61 @@ class DAG:
         if aggregate == 'max':
             self.aggregate_pred()
 
+    def reset_pred(self):
+        for n in self.nodes.values():
+            n.pred = None
+            n.pred_agg = None
+            n.preds = None
+
     def aggregate_pred(self):
-        if self.root.pred_agg is not None:
-            for n in self.nodes.values():
-                n.pred_agg = None
         self.root.aggregate_pred()
 
-    def compact_preds(self):
-        # all_leafs = [n for n in self.nodes.values() if n.pred is not None]
-        # ancs = {n: set(a for a in n.ancestors()) for n in all_leafs}
-        # all_ancs = set([self.root])
-        # for anc in ancs.values(): all_ancs.update(anc)
-        # all_ancs = list(all_ancs)
-        # adj = np.zeros((len(all_leafs), len(all_ancs)))
-        # for i, leaf in enumerate(all_leafs):
-        #     for j, anc in enumerate(all_ancs):
-        #         if anc in ancs[leaf]:
-        #             adj[i,j] = 1
-        # print(adj)
+    def descendant_pred(self):
+        self.root.descendant_pred()
 
-        node_to_leafs = {node: NodeSet(node.iter_leafs()) for node in self.nodes.values()}
-        leafs_sets = set(node_to_leafs.values())
-        assert len(leafs_sets) != len(node_to_leafs)
-        leafs_to_groups = {leafs: NodeGroup(leafs=leafs) for leafs in leafs_sets}
-        node_to_groups = {}
-        for node, leafs in node_to_leafs.items():
-            group = leafs_to_groups[leafs]
+    def compact_preds(self):
+        # finding leafs can be faster!
+        # TODO not focus on leafs, but focus on preds!
+        self.descendant_pred()
+
+        preds_sets = set(n.preds for n in self.nodes.values())
+        preds_to_groups = {preds: NodeGroup() for preds in preds_sets}
+        node_to_groups = dict()
+        for node in self.nodes.values():
+            preds = node.preds
+            group = preds_to_groups[preds]
             node_to_groups[node] = group
             # additionally add node to group
-            group.add(node)
+            group.add_node(node)
 
         for n in self.nodes.values():
             n_group = node_to_groups[n]
             for c in n.children:
                 c_group = node_to_groups[c]
-                if n_group is not c_group:
-                    edge_type = 0 # FIXME extract edge type
-                    n_group.children.append((c_group, edge_type))
+                if n_group is not c_group and c_group not in n_group.children:
+                    n_group.children.append(c_group)
 
-        names, labels = [], []
-        for g in leafs_to_groups.values():
+        # for g in preds_to_groups.values():
+
+        names = []
+        for g in preds_to_groups.values():
             names.append(g.name)
-            labels.append(g.label)
-        for leaf in node_to_leafs[self.root]:
-            names.append(leaf.name)
-            labels.append(leaf.label)
-        parents, childs, types = [], [], []
-        for group in leafs_to_groups.values():
-            for (child_group, edge_type) in group.children:
+
+        nodes_df = self.nodes_df.loc[names]
+
+        parents, childs = [], []
+        for group in preds_to_groups.values():
+            for child_group in group.children:
                 parents.append(group.name)
                 childs.append(child_group.name)
-                types.append(edge_type)
-            for leaf in group.unique_leafs():
-                parents.append(group.name)
-                childs.append(leaf.name)
-                types.append(0) # FIXME edge type?
+            # for leaf in group.unique_leafs():
+            #     parents.append(group.name)
+            #     childs.append(leaf.name)
 
-        nodes_df = pd.DataFrame({'name': names, 'label':labels}).set_index('name', drop=True)
-        edges_df = pd.DataFrame({'parent': parents, 'child': childs, 'type': types})
+        # nodes_df = pd.DataFrame({'name': names, 'label':labels}).set_index('name', drop=True)
+        edges_df = pd.DataFrame({'parent': parents, 'child': childs})
 
-        print(nodes_df)
-        print(edges_df)
-
-        return DAG(nodes_df, edges_df, self.edge_types)
+        return DAG(nodes_df, edges_df, discard_singles=False)
 
     def copy(self, init=False):
         # Using dataframe
