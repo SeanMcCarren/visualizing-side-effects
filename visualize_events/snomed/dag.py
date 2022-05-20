@@ -1,3 +1,4 @@
+from multiprocessing.sharedctypes import Value
 import pickle
 from typing import Optional, List
 import numpy as np
@@ -23,6 +24,7 @@ class Node:
         self.d = None  # Can hold depth value
         self.label = label  # Holds label of concept
         self.leafs = None  # Can hold nr of leafs
+        self.visited = False
 
     @property
     def height(self):
@@ -54,18 +56,25 @@ class Node:
         else:
             return any((child.has_important for child in self.children))
 
-    def aggregate_pred(self):
+    def make_important(self):
+        if self.important:
+            return
+        else:
+            self.important = True
+            for c in self.children: c.make_important()
+
+    def aggregate_pred(self, agg_func):
         # avoid repetitive work in non-tree DAG
         if self.pred_agg is not None:
             return self.pred_agg
 
-        child_preds = [c.aggregate_pred() for c in self.children]
+        child_preds = [c.aggregate_pred(agg_func) for c in self.children]
         if self.pred is not None:
             child_preds.append(self.pred)
         if len(child_preds) == 0:
             raise ValueError("No preds in subtree")
         arr = np.array(child_preds)
-        self.pred_agg = np.amax(arr, axis=0)
+        self.pred_agg = agg_func(arr, axis=0)
         return self.pred_agg
 
     def descendant_pred(self):
@@ -133,27 +142,81 @@ class Node:
         return string
 
     def ancestors(self):
-        yield self
-        visited = set([self])
-        for p in self.parents:
-            for anc in p.ancestors():
-                if anc not in visited:
-                    yield anc
-                    visited.add(anc)
+        to_visit = [self]
+        visited_or_going_to = set([self])
+        while to_visit:
+            n = to_visit.pop(0)
+            yield n
+            for p in self.parents:
+                if p not in visited_or_going_to:
+                    to_visit.append(p)
 
     def descendants(self):
-        yield self
-        visited = set([self])
-        for c in self.children:
-            for des in c.descendants():
-                if des not in visited:
-                    yield des
-                    visited.add(des)
+        """
+        BFS down
+        """
+        to_visit = [self]
+        visited_or_going_to = set([self])
+        while to_visit:
+            n = to_visit.pop(0)
+            yield n
+            for c in self.children:
+                if c not in visited_or_going_to:
+                    to_visit.append(c)
 
     def iter_leafs(self):
         for des in self.descendants():
             if len(des.children) == 0:
                 yield des
+
+    def reset_visited_children(self):
+        self.visited = False
+        for c in self.children: c.reset_visited_children()
+
+    def reset_visited_parents(self):
+        self.visited = False
+        for p in self.parents: p.reset_visited_parents()
+
+    def _attr_ancs(self, ancs=None):
+        """
+        We borrow self.leafs
+        """
+        if ancs == None:
+            ancs = NodeSet([self])
+        else:
+            ancs = ancs.copy()
+            ancs.add(self)
+
+        propagate = True
+        if self.leafs is None:
+            self.leafs = ancs
+        else:
+            N = len(self.leafs)
+            self.leafs.update(ancs)
+            if N == len(self.leafs):
+                propagate = False
+
+        if propagate:
+            for c in self.children:
+                c._attr_ancs(ancs)
+
+    def dist_up(self, other):
+        # use BFS!
+        # dist_up is likely better than dist_down, because a node will have less ancestors than descendants!
+        to_visit = [(self, 0)]
+        visited = set()
+        while len(to_visit) != 0:
+            n, d = to_visit.pop(0)
+            if n is other:
+                return d
+            else:
+                for p in n.parents:
+                    if p not in visited:
+                        to_visit.append((p, d+1))
+                        visited.add(p)
+
+
+
 
 primes = [i for i in range(2, 1000)]
 for iter in range(1, 100):
@@ -322,6 +385,19 @@ class DAG:
             n.leafs = None
             assert n.w != 0
 
+    def clear_leafs(self):
+        for n in self.nodes.values():
+            n.leafs = None
+
+    def get_ancestors(self):
+        self.add_parent_store()
+        self.root._attr_ancs()
+        anc_store = []
+        for n in self.nodes.values():
+            anc_store.append(n.leafs)
+        self.clear_leafs()
+        return anc_store
+
     def attr_depth(self):
         # Always take length of shortest path to root
         for n in self.traverse(raise_on_visited=False):
@@ -414,6 +490,29 @@ class DAG:
         for node in list(self.nodes.values()):
             if not keep_constraint(node):
                 self._del_node(node)
+
+    def keep_clinical_findings_and_body(self):
+        T = self.get_edge_types([0,1])
+        body = T.root.children[-8]
+        cf = T.root.children[-5]
+
+        assert all(T.nodes_df.loc[[body.name, cf.name]]['label'] == ['Body structure (body structure)', 'Clinical finding (finding)'])
+
+        body.make_important()
+        cf.make_important()
+        T.root.important = True
+        return T.filter(keep_constraint = lambda n: n.important)
+
+    def keep_clinical_findings(self):
+        T = self.get_edge_types([0])
+        cf = T.root.children[-5]
+
+        assert T.nodes_df.loc[cf.name]['label'] == 'Clinical finding (finding)'
+
+        cf.make_important()
+        T.root.important = True
+        return T.filter(keep_constraint = lambda n: n.important)
+
 
     def filter(self, keep_constraint=None, keep_names=None):
         # N = 0
@@ -540,8 +639,8 @@ class DAG:
             n = self.nodes[reaction]
             n.pred = row # could be a tuple!
 
-        if aggregate == 'max':
-            self.aggregate_pred()
+        if aggregate != False and aggregate is not None:
+            self.aggregate_pred(aggregate)
 
     def reset_pred(self):
         for n in self.nodes.values():
@@ -549,15 +648,21 @@ class DAG:
             n.pred_agg = None
             n.preds = None
 
-    def aggregate_pred(self):
-        self.root.aggregate_pred()
+    def aggregate_pred(self, aggregate):
+        if aggregate == 'max':
+            agg_func = np.amax
+        elif aggregate == 'sum':
+            agg_func = np.sum
+        else:
+            raise ValueError(f"Can not interpret aggregation function {aggregate}")
+        self.root.aggregate_pred(agg_func)
 
     def descendant_pred(self):
         self.root.descendant_pred()
 
     def compact_preds(self):
-        # finding leafs can be faster!
-        # TODO not focus on leafs, but focus on preds!
+        # TODO move to algorithms
+        # finding leafs can be faster?
         self.descendant_pred()
 
         preds_sets = set(n.preds for n in self.nodes.values())
