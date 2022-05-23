@@ -150,6 +150,7 @@ class Node:
             for p in self.parents:
                 if p not in visited_or_going_to:
                     to_visit.append(p)
+                    visited_or_going_to.add(p)
 
     def descendants(self):
         """
@@ -163,6 +164,7 @@ class Node:
             for c in self.children:
                 if c not in visited_or_going_to:
                     to_visit.append(c)
+                    visited_or_going_to.add(c)
 
     def iter_leafs(self):
         for des in self.descendants():
