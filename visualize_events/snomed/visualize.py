@@ -38,3 +38,30 @@ def draw_subgraph_to_leaf(x: Node, T: DAG, ax = None):
 
     nx.draw_networkx_labels(G,pos,labels,font_size=12,font_color='black', ax=ax)
     return ax
+
+
+def draw_dag(T: DAG, ax = None):
+    edges = [
+        (node.name, child.name) for node in T.nodes.values() for child in node.children
+    ]
+    G = nx.DiGraph()
+    G.add_edges_from(edges, node_size=1)
+
+    rows = T.get_depths()
+    pos = {}
+    for d, nodes in enumerate(rows):
+        if d == 0:
+            for node in nodes:
+                pos[node.name] = (1/2, -d)
+            continue
+        nodes_with_x = []
+        for i, node in enumerate(nodes):
+            parent_x = [pos[par.name][0] for par in node.parents for _ in range(node.d - par.d)]
+            nodes_with_x.append((node, sum(parent_x) / len(parent_x)))
+        nodes_with_x = sorted(nodes_with_x, key=lambda x: x[1])
+        for i, node_w_x in enumerate(nodes_with_x):
+            node = node_w_x[0]
+            pos[node.name] = ((1+i) / (1+len(nodes)), -d)
+
+    nx.draw(G, pos, with_labels=False, node_size=5, edge_color='r', alpha=0.5, ax=ax, arrows=False)
+    plt.show()
