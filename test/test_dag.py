@@ -7,12 +7,16 @@ def diamond_dag():
     nodes_df = pd.DataFrame({'name':[0,1,2,3,4],'label':[0,1,2,3,4]}).set_index('name')
     edges_df = pd.DataFrame({'parent':[0, 0, 0, 1, 2, 3],'child':[1, 2, 3, 4, 4, 4]})
     T = DAG(nodes_df, edges_df)
+    predictions = pd.Series([1], index=[4])
+    T = T.set_predictions(predictions)
     return T
 
 def diamond_dag_tail():
-    nodes_df = pd.DataFrame({'name':[0,1,2,3,4, 5],'label':[0,1,2,3,4,5]}).set_index('name')
+    nodes_df = pd.DataFrame({'name':[0,1,2,3,4,5],'label':[0,1,2,3,4,5]}).set_index('name')
     edges_df = pd.DataFrame({'parent':[0, 0, 0, 1, 2, 3,1],'child':[1, 2, 3, 4, 4, 4,5]})
     T = DAG(nodes_df, edges_df)
+    predictions = pd.Series([1, 1], index=[4, 5])
+    T = T.set_predictions(predictions)
     return T
 
 def predictions_dag():
@@ -64,7 +68,7 @@ def test_copy(init):
         assert a is not b
         assert a.name == b.name
 
-@pytest.mark.parametrize("dag_result", [(diamond_dag(), 1), (diamond_dag_tail(), 3), predictions_dag(), None])
+@pytest.mark.parametrize("dag_result", [(diamond_dag(), 1), (diamond_dag_tail(), 3), (predictions_dag(), None)])
 def test_compact(dag_result):
     T, result = dag_result
     root = T.compact_preds()
