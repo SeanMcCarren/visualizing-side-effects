@@ -5,5 +5,6 @@ __all__ = [
     "DAG",
     "Node",
     "load_dag",
-    "draw_subgraph_to_leaf"
+    "draw_subgraph_to_leaf",
+    "draw_dag"
 ]
