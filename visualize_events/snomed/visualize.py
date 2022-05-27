@@ -27,8 +27,11 @@ def draw_subgraph_to_leaf(x: Node, T: DAG, ax = None):
             xx, yy = pos[n.name]
             pos[n.name] = (((xx-0) * -1 + (len(row[n.depth])-1-xx))/len(row[n.depth]), yy + (xx % 3 - 1)/3)
 
-    pos[T.root.name] = (pos[T.root.name][0], pos[T.root.name][1]-0.3)
-    pos[x.name] = (pos[x.name][0], pos[x.name][1] + 0.5)
+    try:
+        pos[T.root.name] = (pos[T.root.name][0], pos[T.root.name][1]-0.3)
+        pos[x.name] = (pos[x.name][0], pos[x.name][1] + 0.5)
+    except KeyError:
+        pass
 
     nx.draw(G, pos, with_labels=False, node_size=5, edge_color='r', alpha=0.5, ax=ax)
 
@@ -64,4 +67,4 @@ def draw_dag(T: DAG, ax = None):
             pos[node.name] = ((1+i) / (1+len(nodes)), -d)
 
     nx.draw(G, pos, with_labels=False, node_size=5, edge_color='r', alpha=0.5, ax=ax, arrows=False)
-    plt.show()
+    return ax
