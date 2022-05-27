@@ -35,10 +35,12 @@ class Node:
 
     @property
     def depth(self):
-        if len(self.parents) == 0:
-            return 0
-        else:
-            return max((parent.depth for parent in self.parents)) + 1
+        if self.d is None:
+            if len(self.parents) == 0: # must have set parents!
+                self.d = 0
+            else:
+                self.d = max((parent.depth for parent in self.parents)) + 1
+        return self.d
 
     @property
     def size(self):
@@ -81,7 +83,7 @@ class Node:
         if self.preds is not None:
             return self.preds
 
-        self.preds = NodeSet(pred for child in self.children for pred in child.descendant_pred())
+        self.preds = NodeSet([pred for child in self.children for pred in child.descendant_pred()])
         if self.pred is not None:
             self.preds.add(self)
         return self.preds
@@ -147,7 +149,7 @@ class Node:
         while to_visit:
             n = to_visit.pop(0)
             yield n
-            for p in self.parents:
+            for p in n.parents:
                 if p not in visited_or_going_to:
                     to_visit.append(p)
                     visited_or_going_to.add(p)
@@ -161,7 +163,7 @@ class Node:
         while to_visit:
             n = to_visit.pop(0)
             yield n
-            for c in self.children:
+            for c in n.children:
                 if c not in visited_or_going_to:
                     to_visit.append(c)
                     visited_or_going_to.add(c)
@@ -178,6 +180,10 @@ class Node:
     def reset_visited_parents(self):
         self.visited = False
         for p in self.parents: p.reset_visited_parents()
+
+    def reset_depth(self):
+        for node in self.nodes.values():
+            node.d = None
 
     def _attr_ancs(self, ancs=None):
         """
@@ -400,11 +406,6 @@ class DAG:
         self.clear_leafs()
         return anc_store
 
-    def attr_depth(self):
-        # Always take length of shortest path to root
-        for n in self.traverse(raise_on_visited=False):
-            n.d = n.depth
-
     def attr_label(self):
         for name, node in self.nodes.items():
             node.label = self.nodes_df.loc[name, 'label']
@@ -618,7 +619,7 @@ class DAG:
     def __len__(self):
         return len(self.nodes)
 
-    def set_predictions(self, prediction_df, aggregate='max', discard_others=True):
+    def set_predictions(self, prediction_df, aggregate='sum', discard_others=True):
         assert isinstance(prediction_df, pd.Series)
         # assert prediction_df.index.name == "snomed_reaction"
         if self.root.pred_agg is not None:
@@ -662,6 +663,20 @@ class DAG:
     def descendant_pred(self):
         self.root.descendant_pred()
 
+    def get_depths(self):
+        """
+        returns a list of list, where the i-th list has the nodes on depth i.
+        """
+        self.add_parent_store()
+        depths = {}
+        for node in self.nodes.values():
+            if node.depth not in depths:
+                depths[node.depth] = []
+            depths[node.depth].append(node)
+        diff_depths = sorted(list(depths.keys()))
+        assert max(diff_depths) == len(diff_depths) - 1 and diff_depths[0] == 0
+        return [depths[k] for k in diff_depths]
+
     def compact_preds(self):
         # TODO move to algorithms
         # finding leafs can be faster?
@@ -704,7 +719,9 @@ class DAG:
         # nodes_df = pd.DataFrame({'name': names, 'label':labels}).set_index('name', drop=True)
         edges_df = pd.DataFrame({'parent': parents, 'child': childs})
 
-        return DAG(nodes_df, edges_df, discard_singles=False)
+        dag = DAG(nodes_df, edges_df, discard_singles=False)
+
+        return dag
 
     def copy(self, init=False):
         # Using dataframe
