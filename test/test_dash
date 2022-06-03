@@ -1,0 +1,33 @@
+from dash import Dash, html, dcc
+
+from visualize_events import HexMerge
+from visualize_events.data import *
+from visualize_events.snomed import *
+
+app = Dash(__name__)
+
+T = load_dag()
+preds = get_predictions(2793, predictor='ci_low') # frequency, ci_low, ci_upp
+P = T.set_predictions(preds, aggregate='sum')
+C = P.compact_preds()
+C = C.set_predictions(preds, aggregate='sum')
+C.descendant_pred()
+alg = HexMerge()
+alg.fit(P)
+fig = alg.make_fig()
+
+app.layout = html.Div(children=[
+    html.H1(children='Hello Dash'),
+
+    html.Div(children='''
+        Dash: A web application framework for your data.
+    '''),
+
+    dcc.Graph(
+        id='example-graph',
+        figure=fig
+    )
+])
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
