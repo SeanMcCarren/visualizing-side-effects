@@ -663,6 +663,14 @@ class DAG:
     def descendant_pred(self):
         self.root.descendant_pred()
 
+    def filter_pred(self, min_val):
+        T = self.copy()
+        for n in T.nodes.values():
+            if n.pred is not None:
+                if n.pred < min_val:
+                    n.pred = 0.
+        return T
+
     def get_depths(self):
         """
         returns a list of list, where the i-th list has the nodes on depth i.

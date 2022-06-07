@@ -340,7 +340,8 @@ class HexMerge:
 
         it = np.nditer(assignment, flags=['multi_index'])
         for x in it:
-            self.P_nodes_to_grid[self.P_nodes[x]].append(it.multi_index)
+            if x >= 0:
+                self.P_nodes_to_grid[self.P_nodes[x]].append(it.multi_index)
 
         t.attr_label()
         self.depths = t.get_depths()    

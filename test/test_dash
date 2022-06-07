@@ -13,7 +13,7 @@ C = P.compact_preds()
 C = C.set_predictions(preds, aggregate='sum')
 C.descendant_pred()
 alg = HexMerge()
-alg.fit(P)
+alg.fit(C)
 fig = alg.make_fig()
 
 app.layout = html.Div(children=[
