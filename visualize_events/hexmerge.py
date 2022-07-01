@@ -13,6 +13,7 @@ Y_HEX = RADIUS * np.sin(ANGLES)
 class HexMerge:
     def __init__(self,
         target_hexes = 1000,
+        fraction_occupied_hexes = 0.8,
         kmax = 0,
         same_leaf_factor = 3,
         adjacency_factor = 1,
@@ -25,6 +26,7 @@ class HexMerge:
         MOVED_LOWERBOUND = 0.03
     ):
         self.target_hexes = target_hexes
+        self.fraction_occupied_hexes = fraction_occupied_hexes
         self.kmax = kmax
         self.same_leaf_factor = same_leaf_factor
         self.adjacency_factor = adjacency_factor
@@ -56,7 +58,9 @@ class HexMerge:
         indx_P_nodes, self.P_nodes = [], []
         for i, node in enumerate(nodes):
             if (node.pred is not None and node.pred != 0):
-                hexes = int(np.floor(self.hexes_scaling(node.pred) / sum_scaled * (2*n*m)).item())
+                hexes = int(np.floor(
+                    self.hexes_scaling(node.pred) / sum_scaled * (2*n*m) * self.fraction_occupied_hexes
+                ).item())
                 if hexes <= 0:
                     continue
                 indx_P_nodes.append(i)
@@ -105,8 +109,9 @@ class HexMerge:
         weights = new_weights
 
         # ------- DESIRED LOCATION --------
-        anc_store = t.get_ancestors()
-
+        anc_store_dict = t.get_ancestors()
+        anc_store = [anc_store_dict[n] for n in nodes]
+        # TODO fix this, can be more efficient
         dist = np.zeros((N, N))
         for i, anc1 in enumerate(anc_store):
             for j, anc2 in enumerate(anc_store[i+1:], i+1):
