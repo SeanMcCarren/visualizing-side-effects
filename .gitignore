@@ -6,3 +6,8 @@ visualize_events.egg-info/
 visualize_events/data/simple_predictions_cache
 
 visualize_events/snomed/cached_snomed
+*.pdf
+*.pdf
+*.png
+*.pgf
+*.csv
