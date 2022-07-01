@@ -65,16 +65,22 @@ class Node:
             self.important = True
             for c in self.children: c.make_important()
 
-    def aggregate_pred(self, agg_func):
+    def aggregate_pred(self, agg_func, unique=False):
         # avoid repetitive work in non-tree DAG
         if self.pred_agg is not None:
             return self.pred_agg
+        if not unique:
+            child_preds = [c.aggregate_pred(agg_func, unique=unique) for c in self.children]
+            if self.pred is not None:
+                child_preds.append(self.pred)
+            if len(child_preds) == 0:
+                raise ValueError("No preds in subtree")
+        else:
+            for c in self.children:
+                c.aggregate_pred(agg_func, unique=unique)
+            # assuming descendant_preds was called
+            child_preds = [node_with_pred.pred for node_with_pred in self.preds]
 
-        child_preds = [c.aggregate_pred(agg_func) for c in self.children]
-        if self.pred is not None:
-            child_preds.append(self.pred)
-        if len(child_preds) == 0:
-            raise ValueError("No preds in subtree")
         arr = np.array(child_preds)
         self.pred_agg = agg_func(arr, axis=0)
         return self.pred_agg
@@ -143,12 +149,14 @@ class Node:
             string += f"[&&NHX:{args}]"
         return string
 
-    def ancestors(self):
+    def ancestors(self, stop_at=None):
         to_visit = [self]
         visited_or_going_to = set([self])
         while to_visit:
             n = to_visit.pop(0)
             yield n
+            if stop_at is not None and n in stop_at:
+                continue
             for p in n.parents:
                 if p not in visited_or_going_to:
                     to_visit.append(p)
@@ -208,9 +216,10 @@ class Node:
             for c in self.children:
                 c._attr_ancs(ancs)
 
-    def dist_up(self, other):
+    def dist_up(self, other, skip=None):
         # use BFS!
         # dist_up is likely better than dist_down, because a node will have less ancestors than descendants!
+        # problem is that the depth need not decrease when travelling up
         to_visit = [(self, 0)]
         visited = set()
         while len(to_visit) != 0:
@@ -220,8 +229,9 @@ class Node:
             else:
                 for p in n.parents:
                     if p not in visited:
-                        to_visit.append((p, d+1))
-                        visited.add(p)
+                        if skip is None or p not in skip:
+                            to_visit.append((p, d+1))
+                            visited.add(p)
 
 
 
@@ -400,9 +410,9 @@ class DAG:
     def get_ancestors(self):
         self.add_parent_store()
         self.root._attr_ancs()
-        anc_store = []
+        anc_store = {}
         for n in self.nodes.values():
-            anc_store.append(n.leafs)
+            anc_store[n] = n.leafs
         self.clear_leafs()
         return anc_store
 
@@ -517,7 +527,7 @@ class DAG:
         return T.filter(keep_constraint = lambda n: n.important)
 
 
-    def filter(self, keep_constraint=None, keep_names=None):
+    def filter(self, keep_constraint=None, keep_names=None, copy_pred=True):
         # N = 0
         # if traverse:
         #     for n in self.traverse(
@@ -539,7 +549,12 @@ class DAG:
             keep_names = np.array([name for name, node in self.nodes.items() if keep_constraint(node)])
         nodes_df = self.nodes_df.loc[keep_names]
         edges_df = self.edges_df[np.logical_and(np.isin(self.edges_df['child'], keep_names), np.isin(self.edges_df['parent'], keep_names))]
-        return DAG(nodes_df, edges_df, self.edge_types)
+        dag = DAG(nodes_df, edges_df, self.edge_types)
+
+        if copy_pred:
+            self.transfer_pred_to(dag)
+
+        return dag
 
     def _discard_singles(self):
         self._compute_adjacency()
@@ -578,7 +593,7 @@ class DAG:
             .astype(int)
         )
 
-    def get_subgraph(self, names):
+    def get_subgraph(self, names, copy_pred=True):
         self.add_parent_store()
 
         keep_names_transitive = set()
@@ -602,7 +617,7 @@ class DAG:
                     if (p.name not in keep_names_transitive) and (p not in to_visit):
                         to_visit.append(p)
         
-        return self.filter(keep_names=list(keep_names_transitive))
+        return self.filter(keep_names=list(keep_names_transitive), copy_pred=copy_pred)
 
     def _filter_inplace(self, keep_names):
         self.nodes_df = self.nodes_df[np.isin(self.nodes_df.index, keep_names)]
@@ -619,7 +634,7 @@ class DAG:
     def __len__(self):
         return len(self.nodes)
 
-    def set_predictions(self, prediction_df, aggregate='sum', discard_others=True):
+    def set_predictions(self, prediction_df, aggregate=False, discard_others=True):
         assert isinstance(prediction_df, pd.Series)
         # assert prediction_df.index.name == "snomed_reaction"
         if self.root.pred_agg is not None:
@@ -631,7 +646,7 @@ class DAG:
             logger.warning(f"{N_preds - len(prediction_df)} predictions not found")
 
         if discard_others:
-            subgraph = self.get_subgraph(prediction_df.index.values)
+            subgraph = self.get_subgraph(prediction_df.index.values, copy_pred=False)
             subgraph.set_predictions(prediction_df, aggregate=aggregate, discard_others=False)
             return subgraph
 
@@ -652,13 +667,16 @@ class DAG:
             n.preds = None
 
     def aggregate_pred(self, aggregate):
-        if aggregate == 'max':
+        if 'max' in aggregate:
             agg_func = np.amax
-        elif aggregate == 'sum':
+        elif 'sum' in aggregate:
             agg_func = np.sum
         else:
             raise ValueError(f"Can not interpret aggregation function {aggregate}")
-        self.root.aggregate_pred(agg_func)
+        unique = 'unique' in aggregate
+        if unique:
+            self.descendant_pred()
+        self.root.aggregate_pred(agg_func, unique=unique)
 
     def descendant_pred(self):
         self.root.descendant_pred()
@@ -685,7 +703,7 @@ class DAG:
         assert max(diff_depths) == len(diff_depths) - 1 and diff_depths[0] == 0
         return [depths[k] for k in diff_depths]
 
-    def compact_preds(self):
+    def compact_preds(self, copy_pred=True):
         # TODO move to algorithms
         # finding leafs can be faster?
         self.descendant_pred()
@@ -729,7 +747,40 @@ class DAG:
 
         dag = DAG(nodes_df, edges_df, discard_singles=False)
 
+        if copy_pred:
+            self.transfer_pred_to(dag)
+
         return dag
+    
+    def transfer_pred_to(self, other):
+        for node in other.nodes.values():
+            our_node = self.nodes[node.name]
+            node.pred = our_node.pred
+            node.pred_agg = our_node.pred_agg
+
+    def summary_graph(self, nodes, copy_pred = True, **kwargs):
+        self.add_parent_store()
+
+        sorted_nodes = sorted(nodes, key=lambda node: node.depth)
+
+        edges = []
+        for i, node in enumerate(sorted_nodes):
+            previous_nodes = set(sorted_nodes[:i])
+            ancs = node.ancestors(stop_at=previous_nodes)
+            for anc in ancs:
+                if anc in previous_nodes:
+                    w = node.dist_up(anc, skip=previous_nodes.difference([anc]))
+                    edges.append((anc, node, w))
+        
+        nodes_df = self.nodes_df.loc[[n.name for n in nodes]]
+        edges_df = pd.DataFrame({'parent': [e[0].name for e in edges], 'child': [e[1].name for e in edges]})
+        summary = DAG(nodes_df, edges_df, **kwargs)
+
+        if copy_pred:
+            self.transfer_pred_to(summary)
+
+        return summary
+
 
     def copy(self, init=False):
         # Using dataframe
