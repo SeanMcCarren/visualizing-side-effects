@@ -4,7 +4,7 @@ def representative(G, k, score = lambda w, d: w * 1/(1.9**d)):
     anc_store = G.get_ancestors()
 
     representative_scores = {node: 0. for node in G.nodes.values()}  
-    for node, ancs in zip(G.nodes.values(), anc_store):
+    for node, ancs in anc_store.items():
         if node.pred is not None and node.pred is not 0.:
             w = node.pred # could transform this somehow! for instance np.log(w/threshold)
             
