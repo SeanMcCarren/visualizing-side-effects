@@ -2,6 +2,7 @@ from visualize_events.snomed import *
 from visualize_events.data import *
 import pytest
 import pandas as pd
+from visualize_events.algorithms import representative
 
 def diamond_dag():
     nodes_df = pd.DataFrame({'name':[0,1,2,3,4],'label':[0,1,2,3,4]}).set_index('name')
@@ -19,9 +20,23 @@ def diamond_dag_tail():
     T = T.set_predictions(predictions)
     return T
 
-def predictions_dag():
+def wide_dag():
     T = load_dag()
-    preds = get_predictions(861)
+    disease = T.nodes[64572001]
+    names = [disease.name] + [c.name for c in disease.children]
+    subgraph = T.filter(keep_names = names, copy_pred=False)
+
+    predictions = pd.Series(
+        [0.4, 0.4, 0.1],
+        index=[733141003, 733140002, 44730006],
+    )
+
+    T = subgraph.set_predictions(predictions)
+    return T
+
+def predictions_dag(prediction=861):
+    T = load_dag()
+    preds = get_predictions(prediction)
     T = T.set_predictions(preds)
     return T
 
@@ -74,3 +89,10 @@ def test_compact(dag_result):
     root = T.compact_preds()
     if result is not None:
         assert len(root) == result
+
+def test_summary_graph():
+    T = predictions_dag(None)
+    # T = diamond_dag()
+    draw_nodes = representative(T, 50)
+    summary = T.summary_graph(draw_nodes)
+    print(summary)
