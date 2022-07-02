@@ -81,7 +81,7 @@ def compute_marginal_gain(x, dist_from_S):
 
 # so, assuming we already know d(S, v)
 class CoverageDistance:
-    def __init__(self, tree, func = None):
+    def __init__(self, tree, func = None, only_leafs=False):
         self.tree = tree
         self.distance = dict()
         self.descendants = dict()
@@ -89,22 +89,38 @@ class CoverageDistance:
             func = lambda x: 1 + log(x)
         self.func = func
 
-        def compute(node):
-            has = self.descendants.get(node, None)
-            if has is not None:
-                return has
-            children = set([node.name])
-            for child in node.children:
-                children.update(compute(child))
-            self.descendants[node.name] = children
-            return children
+        if only_leafs:
+            def compute_leafs(node):
+                has = self.descendants.get(node.name, None)
+                if has is not None:
+                    return has
+                leafs = set()
+                if len(node.children) == 0:
+                    leafs.add(node.name)
+                else:
+                    for child in node.children:
+                        leafs.update(compute_leafs(child))
+                self.descendants[node.name] = leafs
+                return leafs
+            compute = compute_leafs
+        else:
+            def compute_desc(node):
+                has = self.descendants.get(node.name, None)
+                if has is not None:
+                    return has
+                children = set([node.name])
+                for child in node.children:
+                    children.update(compute_desc(child))
+                self.descendants[node.name] = children
+                return children
+            compute = compute_desc
+
         compute(self.tree.root)
 
         self.nr_descendants = {name: len(descendants) for name, descendants in self.descendants.items()}
         print("Initialization complete.")
 
     def dist(self, v, u):
-        assert u.name in self.descendants[v.name]
         dist = self.distance.get((v, u), None)
         if dist is None:
             dist = (self.func(self.nr_descendants[v.name])) / (self.func(self.nr_descendants[u.name]))

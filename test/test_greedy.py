@@ -1,7 +1,7 @@
 from visualize_events.algorithms._top_k_greedy import greedy_plus, compute_marginal_gain, CoverageDistance
 import pandas as pd
 from visualize_events.snomed import DAG, load_dag
-from test_dag import wide_dag
+from test_dag import wide_dag, predictions_dag
 
 def example_dag():
     nodes = pd.DataFrame(
@@ -63,4 +63,11 @@ def test_disease_specificity():
     print(cov.distance[T.nodes[49698005], T.nodes[733141003]])
     assert n2.name != 64572001 # it should be 49698005 but that also has a lot of children
 
-test_disease_specificity()
+def test_coverage_large():
+    T = load_dag()
+    P = predictions_dag(861)
+    cov = CoverageDistance(T, only_leafs=True)
+    n2 = cov.greedy(P, 3)
+    print(n2)
+
+test_coverage_large()
