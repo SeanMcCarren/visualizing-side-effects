@@ -2,7 +2,8 @@ from visualize_events.snomed import *
 from visualize_events.data import *
 import pytest
 import pandas as pd
-from visualize_events.algorithms import representative
+import numpy as np
+from visualize_events.algorithms import representative, CoverageDistance, greedy_plus
 
 def diamond_dag():
     nodes_df = pd.DataFrame({'name':[0,1,2,3,4],'label':[0,1,2,3,4]}).set_index('name')
@@ -33,6 +34,32 @@ def wide_dag():
 
     T = subgraph.set_predictions(predictions)
     return T
+
+def report_dag():
+    nodes_df = pd.DataFrame({'name':
+        [
+            0, 1, 2, 3, 4,
+            5, 6, 7, 8, 9,
+            10, 11, 12, 13, 14,
+            15
+        ] + [i for i in range(16, 116)],
+        'label':[
+            'Disease', 'Eczema', 'Nausea', 'Upper body', 'Lower body',
+            'Head', 'Face', 'Eczema of face', 'Legs', 'Eczema of leg',
+            'Dry eczema', 'Lung disease', 'Lung infection', 'Lung cancer', 'Bronchitis',
+            'Bronchiolitis',
+        ] + [i-16 for i in range(16, 116)]
+    }).set_index('name')
+    edges_df = pd.DataFrame(
+        {
+            'parent':[0, 0, 1, 1, 3, 5, 6, 4, 8, 1, 0, 0, 11, 11, 12, 11, 12] + [0 for i in range(16, 116)],
+            'child':[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 14, 15, 15] + [i for i in range(16, 116)]
+        }
+    )
+    T = DAG(nodes_df, edges_df)
+    predictions = pd.Series([14, 10, 10, 10, 1, 16, 15], index=[2, 7, 9, 10, 13, 14, 15])
+    T_pred = T.set_predictions(predictions)
+    return T, T_pred
 
 def predictions_dag(prediction=861):
     T = load_dag()
@@ -66,7 +93,7 @@ def test_newick():
     t = Tree(newick, format=8, quoted_node_names=True)
     some = False
     for n in t.traverse():
-        if hasattr(n, 'agg') and hasattr(n, 'f'):
+        if hasattr(n, 'f'):
             some = True
             break
     assert some
@@ -83,16 +110,28 @@ def test_copy(init):
         assert a is not b
         assert a.name == b.name
 
-@pytest.mark.parametrize("dag_result", [(diamond_dag(), 1), (diamond_dag_tail(), 3), (predictions_dag(), None)])
-def test_compact(dag_result):
-    T, result = dag_result
-    root = T.compact_preds()
-    if result is not None:
-        assert len(root) == result
-
 def test_summary_graph():
     T = predictions_dag(None)
     # T = diamond_dag()
     draw_nodes = representative(T, 50)
     summary = T.summary_graph(draw_nodes)
     print(summary)
+
+def test_example_report():
+    T, T_P = report_dag()
+    assert len(T) == 116
+    assert len(T_P) == 16
+    T_P.attr_label()
+    ours = ['Lung infection', 'Nausea', 'Eczema']
+
+    cov = CoverageDistance(T, func=np.sqrt, only_leafs=False)
+    draw_nodes = cov.greedy(T_P, 3)
+    assert set([n.label for n in draw_nodes]) == set(ours)
+    
+    cov = CoverageDistance(T, func=np.sqrt, only_leafs=True)
+    draw_nodes = cov.greedy(T_P, 3)
+    assert set([n.label for n in draw_nodes]) == set(ours)
+
+    theirs = ['Disease', 'Bronchitis', 'Bronchiolitis']
+    draw_nodes = greedy_plus(T_P, 3)
+    assert set([n.label for n in draw_nodes]) == set(theirs)

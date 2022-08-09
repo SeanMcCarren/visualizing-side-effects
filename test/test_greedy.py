@@ -1,7 +1,8 @@
-from visualize_events.algorithms._top_k_greedy import greedy_plus, compute_marginal_gain, CoverageDistance
+import pytest
+from visualize_events.algorithms._top_k_greedy import greedy_plus, compute_marginal_gain, CoverageDistance, candidates
 import pandas as pd
 from visualize_events.snomed import DAG, load_dag
-from test_dag import wide_dag, predictions_dag
+from test_dag import wide_dag, predictions_dag, diamond_dag_tail, diamond_dag
 
 def example_dag():
     nodes = pd.DataFrame(
@@ -21,7 +22,7 @@ def example_dag():
         index=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
     )
     G = DAG(nodes, edges)
-    G.set_predictions(predictions, discard_others=False)
+    G.set_predictions(predictions, copy_subgraph=False)
     G.attr_label()
     return G
 
@@ -46,21 +47,12 @@ def test_coverage():
     print(S)
     assert S is not None
 
-def test_compute_marginal():
-    cov = CoverageDistance(example_dag())
-    G = example_dag()
-    dist_from_S = {node: dist for node, dist in zip(G.nodes.values(),[0,1,1,1,2,2,2,2,2,2,2,2,3,3])}
-    marginal = cov.compute_marginal_gain(list(G.nodes.values())[3], dist_from_S)
-    print(marginal)
-    assert marginal == 12.5
-
 def test_disease_specificity():
     T = wide_dag()
     n = greedy_plus(T, 1)[0]
     assert n.name == 64572001 # disease
     cov = CoverageDistance(T)
-    n2 = cov.greedy(T, 1)
-    print(cov.distance[T.nodes[49698005], T.nodes[733141003]])
+    n2 = cov.greedy(T, 1)[0]
     assert n2.name != 64572001 # it should be 49698005 but that also has a lot of children
 
 def test_coverage_large():
@@ -70,4 +62,10 @@ def test_coverage_large():
     n2 = cov.greedy(P, 3)
     print(n2)
 
-test_coverage_large()
+
+@pytest.mark.parametrize("dag_result", [(diamond_dag(), 1), (diamond_dag_tail(), 3), (predictions_dag(), None)])
+def test_candidates(dag_result):
+    T, result = dag_result
+    C = candidates(T)
+    if result is not None:
+        assert len(C) == result

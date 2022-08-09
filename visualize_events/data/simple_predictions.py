@@ -48,6 +48,7 @@ def frequency_prediction_from_data(reactions):
 
     ci_low, ci_upp = proportion_confint(incidence, N_cases, alpha=0.05, method='jeffreys')
 
+    ci_low[ci_low < 1 / N_cases] = 0
     # Normal approximation of CI: bad!
     # z = 1.96
     # p_hat = frequency.values
@@ -55,7 +56,7 @@ def frequency_prediction_from_data(reactions):
     # # lower_CI = p_hat - z * sqrt(divide(numerator,N_cases))
     # error = z * sqrt(divide(numerator,N_cases))
 
-    return DataFrame({'frequency': frequency, 'ci_low': ci_low, 'ci_upp': ci_upp})
+    return DataFrame({'frequency': frequency, 'ci_low': ci_low, 'ci_upp': ci_upp, 'incidence': incidence})
 
 def _compute_prediction_two_drugs(drug_pair):
     global _doubles, _drugs
@@ -92,7 +93,7 @@ def get_predictions(drug_pairs: Union[DrugPair,List[DrugPair]], predictor='frequ
     """
     Compute predictions from data.
     """
-    if predictor not in ['frequency', 'ci_low', 'ci_upp']:
+    if predictor not in ['frequency', 'ci_low', 'ci_upp', 'incidence']:
         raise ValueError("predictor method should be one of frequency, ci_low, or ci_upp")
     if drug_pairs is None or isinstance(drug_pairs, (tuple, int)):
         path = _get_path(drug_pairs)

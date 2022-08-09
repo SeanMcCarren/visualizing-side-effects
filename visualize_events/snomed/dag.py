@@ -12,19 +12,20 @@ from visualize_events.data import load_data
 logger = logging.getLogger()
 
 class Node:
+    children = []
+    important = False
+    w = None  # Can hold weight ?
+    pred = None  # Can hold predictions
+    preds = None # Can hold descendant-predictions
+    pred_agg = None  # Can hold aggregated prediction score
+    d = None  # Can hold depth value
+    leafs = None  # Can hold nr of leafs
+    visited = False
+
     def __init__(self, name: int, label: Optional[str] = None):
         assert isinstance(name, (int, np.int64))
         self.name = int(name)
-        self.children = []
-        self.important = False
-        self.w = None  # Can hold weight ?
-        self.pred:float = None  # Can hold predictions
-        self.preds:NodeSet(Node) = None # Can hold descendant-predictions
-        self.pred_agg:float = None  # Can hold aggregated prediction score
-        self.d = None  # Can hold depth value
         self.label = label  # Holds label of concept
-        self.leafs = None  # Can hold nr of leafs
-        self.visited = False
 
     @property
     def height(self):
@@ -90,7 +91,7 @@ class Node:
             return self.preds
 
         self.preds = NodeSet([pred for child in self.children for pred in child.descendant_pred()])
-        if self.pred is not None:
+        if self.pred is not None and self.pred > 0.:
             self.preds.add(self)
         return self.preds
 
@@ -296,6 +297,7 @@ class DAG:
 
     _WARNED = False
     _PARENTS_COMPUTED = False
+    _PREDS_COMPUTED = False
 
     def __init__(
         self,
@@ -409,11 +411,28 @@ class DAG:
 
     def get_ancestors(self):
         self.add_parent_store()
-        self.root._attr_ancs()
+        # self.root._attr_ancs()
         anc_store = {}
-        for n in self.nodes.values():
-            anc_store[n] = n.leafs
-        self.clear_leafs()
+        # for n in self.nodes.values():
+        #     anc_store[n] = n.leafs
+        # self.clear_leafs()
+
+        leafs = [n for n in self.nodes.values() if len(n.children) == 0]
+        Q = leafs
+
+        def compute_ancs(node):
+            has = anc_store.get(node.name, None)
+            if has is not None:
+                return has
+            parents = set([node.name])
+            for parent in node.parents:
+                parents.update(compute_ancs(parent))
+            anc_store[node.name] = parents
+            return parents
+        
+        for leaf in leafs:
+            compute_ancs(leaf)
+
         return anc_store
 
     def attr_label(self):
@@ -634,7 +653,7 @@ class DAG:
     def __len__(self):
         return len(self.nodes)
 
-    def set_predictions(self, prediction_df, aggregate=False, discard_others=True):
+    def set_predictions(self, prediction_df, aggregate=False, copy_subgraph=True):
         assert isinstance(prediction_df, pd.Series)
         # assert prediction_df.index.name == "snomed_reaction"
         if self.root.pred_agg is not None:
@@ -645,22 +664,25 @@ class DAG:
         if len(prediction_df) < N_preds:
             logger.warning(f"{N_preds - len(prediction_df)} predictions not found")
 
-        if discard_others:
+        if copy_subgraph:
             subgraph = self.get_subgraph(prediction_df.index.values, copy_pred=False)
-            subgraph.set_predictions(prediction_df, aggregate=aggregate, discard_others=False)
+            subgraph.set_predictions(prediction_df, aggregate=aggregate, copy_subgraph=False)
             return subgraph
 
         self.prediction_df = prediction_df
 
         for index, row in prediction_df.iteritems():
-            reaction = index
-            n = self.nodes[reaction]
-            n.pred = row # could be a tuple!
+            assert isinstance(row, (float, int)) # we don't support a tuple anymore!
+            if row > 0.:
+                reaction = index
+                n = self.nodes[reaction]
+                n.pred = row
 
         if aggregate != False and aggregate is not None:
             self.aggregate_pred(aggregate)
 
     def reset_pred(self):
+        self._PREDS_COMPUTED = False
         for n in self.nodes.values():
             n.pred = None
             n.pred_agg = None
@@ -679,7 +701,9 @@ class DAG:
         self.root.aggregate_pred(agg_func, unique=unique)
 
     def descendant_pred(self):
-        self.root.descendant_pred()
+        if not self._PREDS_COMPUTED:
+            self._PREDS_COMPUTED = True
+            self.root.descendant_pred()
 
     def filter_pred(self, min_val):
         T = self.copy()
@@ -702,63 +726,15 @@ class DAG:
         diff_depths = sorted(list(depths.keys()))
         assert max(diff_depths) == len(diff_depths) - 1 and diff_depths[0] == 0
         return [depths[k] for k in diff_depths]
-
-    def compact_preds(self, copy_pred=True):
-        # TODO move to algorithms
-        # finding leafs can be faster?
-        self.descendant_pred()
-
-        preds_sets = set(n.preds for n in self.nodes.values())
-        preds_to_groups = {preds: NodeGroup() for preds in preds_sets}
-        node_to_groups = dict()
-        for node in self.nodes.values():
-            preds = node.preds
-            group = preds_to_groups[preds]
-            node_to_groups[node] = group
-            # additionally add node to group
-            group.add_node(node)
-
-        for n in self.nodes.values():
-            n_group = node_to_groups[n]
-            for c in n.children:
-                c_group = node_to_groups[c]
-                if n_group is not c_group and c_group not in n_group.children:
-                    n_group.children.append(c_group)
-
-        # for g in preds_to_groups.values():
-
-        names = []
-        for g in preds_to_groups.values():
-            names.append(g.name)
-
-        nodes_df = self.nodes_df.loc[names]
-
-        parents, childs = [], []
-        for group in preds_to_groups.values():
-            for child_group in group.children:
-                parents.append(group.name)
-                childs.append(child_group.name)
-            # for leaf in group.unique_leafs():
-            #     parents.append(group.name)
-            #     childs.append(leaf.name)
-
-        # nodes_df = pd.DataFrame({'name': names, 'label':labels}).set_index('name', drop=True)
-        edges_df = pd.DataFrame({'parent': parents, 'child': childs})
-
-        dag = DAG(nodes_df, edges_df, discard_singles=False)
-
-        if copy_pred:
-            self.transfer_pred_to(dag)
-
-        return dag
     
     def transfer_pred_to(self, other):
         for node in other.nodes.values():
-            our_node = self.nodes[node.name]
-            node.pred = our_node.pred
-            node.pred_agg = our_node.pred_agg
+            if node.name in self.nodes:
+                our_node = self.nodes[node.name]
+                node.pred = our_node.pred
+                node.pred_agg = our_node.pred_agg
 
-    def summary_graph(self, nodes, copy_pred = True, **kwargs):
+    def summary_graph(self, nodes, copy_pred = True, fake_root=False, **kwargs):
         self.add_parent_store()
 
         sorted_nodes = sorted(nodes, key=lambda node: node.depth)
@@ -772,7 +748,17 @@ class DAG:
                     w = node.dist_up(anc, skip=previous_nodes.difference([anc]))
                     edges.append((anc, node, w))
         
+        if fake_root:
+            have_parents = set([e[1] for e in edges])
+            nodes_without_parent = set(sorted_nodes) - have_parents
+            root = Node(0, 'fake root')
+            sorted_nodes.append(root)
+            for node in nodes_without_parent:
+                edges.append((root, node, 0))
+
         nodes_df = self.nodes_df.loc[[n.name for n in nodes]]
+        if fake_root:
+            nodes_df = nodes_df.append(pd.DataFrame({'name':[root.name],'label':[root.label]}).set_index('name'), ignore_index=False)
         edges_df = pd.DataFrame({'parent': [e[0].name for e in edges], 'child': [e[1].name for e in edges]})
         summary = DAG(nodes_df, edges_df, **kwargs)
 

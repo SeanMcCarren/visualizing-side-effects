@@ -11,3 +11,5 @@ visualize_events/snomed/cached_snomed
 *.png
 *.pgf
 *.csv
+*.gif
+*.pdf

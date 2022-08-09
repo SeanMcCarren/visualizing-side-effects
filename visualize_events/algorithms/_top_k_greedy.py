@@ -73,6 +73,21 @@ def compute_marginal_gain(x, dist_from_S):
                     visited.add(u)
     return gain
 
+def candidates(G):
+    G.descendant_pred()
+
+    candidates = []
+    for node in G.nodes.values():
+        if len(node.preds) > 0:
+            has_equal_child = False
+            for child in node.children:
+                if node.preds == child.preds:
+                    has_equal_child = True
+                    break
+            if not has_equal_child:
+                candidates.append(node)
+    return candidates
+
 # define dist(u, v) as |desc(u)| / |desc(v)|. This dist > 1 always.
 # rep(u, v) = desc(v) / desc(u)
 # gain = w(v) * desc(v) / desc(u)
@@ -128,10 +143,11 @@ class CoverageDistance:
         return dist
 
     def greedy(self, G, k):
-        V = list(G.nodes.values())
+        C = candidates(G)
+        V = G.nodes.values()
         S = []
         dist_from_S = {n: np.inf for n in V}
-        H = heap([(v, self.compute_marginal_gain(v, dist_from_S)) for v in V])
+        H = heap([(v, self.compute_marginal_gain(v, dist_from_S)) for v in C])
         while len(S) < k:
             v, d_max = H.pop()
             marginal = self.compute_marginal_gain(v, dist_from_S)
